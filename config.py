@@ -1,7 +1,11 @@
 import datetime
+import os
+from dotenv import load_dotenv
 
-NVIDIA_API_KEY = "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"
-TAVILY_API_KEY = "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"
+load_dotenv()
+
+NVIDIA_API_KEY = os.environ.get("NVIDIA_API_KEY")
+TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY")
 
 TODAY = datetime.date.today().strftime("%B %d, %Y")
 CURRENT_YEAR = TODAY[-4:]
