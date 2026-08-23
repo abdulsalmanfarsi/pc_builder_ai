@@ -27,9 +27,10 @@ class AskRequest(BaseModel):
     history: Optional[list] = None  # optional - if not given, we start a fresh conversation
 
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
 def health_check():
-    """A simple endpoint to check the server is alive. Visit this in a browser."""
+    """A simple endpoint to check the server is alive. Visit this in a browser.
+    Supports both GET and HEAD, since uptime monitors often use HEAD requests."""
     return {"status": "PC Builder API is running"}
 
 
