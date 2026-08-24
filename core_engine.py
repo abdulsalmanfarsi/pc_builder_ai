@@ -5,19 +5,126 @@ to talk to the PC Builder AI.
 """
 
 import json
+
 from config import TOOLS, CURRENT_YEAR
 from tools import search_web, compare_parts, generate_builds
 
 
-def run_conversation(client, tavily_client, history, question):
-    """
-    Takes the AI client, search client, the full conversation history,
-    and a new question.
+MODEL = "nvidia/nemotron-3-ultra-550b-a55b"
 
-    Runs the AI + tool-calling loop and returns:
-    - answer
-    - updated history
-    - search log
+
+def format_build_answer(client, answer):
+    """
+    Takes the AI's normal build recommendation and forces it into
+    the structured [BUILD] format that the mobile app can recognize.
+    """
+
+    formatter_prompt = f"""
+You are formatting a PC build recommendation for a mobile application.
+
+Convert the answer below into the EXACT structure required.
+
+IMPORTANT:
+- Do not invent or change any hardware, prices, or specifications.
+- Keep the information from the original answer.
+- If there are multiple builds, create a separate [BUILD] block for each.
+- Put the explanation AFTER the build blocks.
+- Do not put markdown tables inside the BUILD blocks.
+- Every complete build MUST have all these fields.
+
+EXACT FORMAT:
+
+[BUILD]
+Name: <short build name>
+Use Case: <gaming / editing / general use>
+CPU: <CPU>
+GPU: <GPU>
+Motherboard: <motherboard>
+RAM: <RAM>
+Storage: <storage>
+PSU: <PSU>
+Cooler: <cooler or Included with CPU>
+Case: <case or Not specified>
+Estimated Total: <price in INR>
+[/BUILD]
+
+OR, for multiple builds:
+
+[BUILD]
+Name: ...
+Use Case: ...
+CPU: ...
+GPU: ...
+Motherboard: ...
+RAM: ...
+Storage: ...
+PSU: ...
+Cooler: ...
+Case: ...
+Estimated Total: ...
+[/BUILD]
+
+[BUILD]
+Name: ...
+Use Case: ...
+CPU: ...
+GPU: ...
+Motherboard: ...
+RAM: ...
+Storage: ...
+PSU: ...
+Cooler: ...
+Case: ...
+Estimated Total: ...
+[/BUILD]
+
+Original answer:
+
+{answer}
+"""
+
+    try:
+        response = client.chat.completions.create(
+            model=MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a strict formatting assistant. "
+                        "Return only the reformatted answer."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": formatter_prompt,
+                },
+            ],
+        )
+
+        formatted = response.choices[0].message.content
+
+        if formatted:
+            return formatted
+
+        return answer
+
+    except Exception as e:
+        print(f"Build formatting failed: {e}")
+        return answer
+
+
+def run_conversation(
+    client,
+    tavily_client,
+    history,
+    question
+):
+    """
+    Takes the AI client, search client, the FULL conversation history
+    so far, and a new question.
+
+    Runs the tool-calling loop and returns the answer plus
+    the updated history.
     """
 
     history.append({
@@ -27,26 +134,176 @@ def run_conversation(client, tavily_client, history, question):
 
     search_log = []
 
-    # Keep multiple rounds for complex questions, but avoid an unnecessary
-    # extra model call after the final tool round.
+    # This lets us know whether the AI used the build generator.
+    build_tool_used = False
+
     MAX_ROUNDS = 3
 
     for round_num in range(MAX_ROUNDS):
 
         response = client.chat.completions.create(
-            model="nvidia/nemotron-3-ultra-550b-a55b",
+            model=MODEL,
             messages=history,
             tools=TOOLS
         )
 
         message = response.choices[0].message
 
-        # --------------------------------------------------
-        # NO TOOL CALLS → THE AI HAS ITS FINAL ANSWER
-        # --------------------------------------------------
-        if not message.tool_calls:
+        # ---------------------------------------------------------
+        # AI wants to use one or more tools
+        # ---------------------------------------------------------
 
-            answer = message.content or "I couldn't generate a response."
+        if message.tool_calls:
+
+            history.append({
+                "role": "assistant",
+                "content": message.content,
+                "tool_calls": [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments
+                        }
+                    }
+                    for tc in message.tool_calls
+                ]
+            })
+
+            for tool_call in message.tool_calls:
+
+                try:
+                    args = json.loads(
+                        tool_call.function.arguments
+                    )
+                except json.JSONDecodeError:
+                    tool_result = (
+                        "The tool arguments could not be "
+                        "read correctly."
+                    )
+
+                    history.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "content": tool_result
+                    })
+
+                    continue
+
+                function_name = (
+                    tool_call.function.name
+                )
+
+                # -------------------------------------------------
+                # WEB SEARCH
+                # -------------------------------------------------
+
+                if function_name == "search_web":
+
+                    query = args.get("query")
+
+                    if not query:
+                        tool_result = (
+                            "No search query was provided."
+                        )
+
+                    else:
+                        search_log.append(query)
+
+                        tool_result = search_web(
+                            tavily_client,
+                            query
+                        )
+
+                # -------------------------------------------------
+                # PART COMPARISON
+                # -------------------------------------------------
+
+                elif function_name == "compare_parts":
+
+                    parts = args.get(
+                        "parts",
+                        []
+                    )
+
+                    search_log.append(
+                        "Comparing: "
+                        + ", ".join(parts)
+                    )
+
+                    tool_result = compare_parts(
+                        tavily_client,
+                        parts,
+                        CURRENT_YEAR
+                    )
+
+                # -------------------------------------------------
+                # BUILD GENERATOR
+                # -------------------------------------------------
+
+                elif function_name == "generate_builds":
+
+                    build_tool_used = True
+
+                    budget = args.get(
+                        "budget"
+                    )
+
+                    use_case = args.get(
+                        "use_case"
+                    )
+
+                    existing_parts = args.get(
+                        "existing_parts"
+                    )
+
+                    search_log.append(
+                        f"Generating builds: "
+                        f"Rs.{budget}, {use_case}"
+                    )
+
+                    tool_result = generate_builds(
+                        tavily_client,
+                        budget,
+                        use_case,
+                        existing_parts,
+                        CURRENT_YEAR
+                    )
+
+                else:
+
+                    tool_result = (
+                        f"Unknown tool: "
+                        f"{function_name}"
+                    )
+
+                # Add tool result to conversation
+                history.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "content": tool_result
+                })
+
+        # ---------------------------------------------------------
+        # AI is ready to answer
+        # ---------------------------------------------------------
+
+        else:
+
+            answer = (
+                message.content
+                or "I couldn't generate a response."
+            )
+
+            # If a complete PC build was generated,
+            # force the structured format.
+            if build_tool_used:
+
+                answer = format_build_answer(
+                    client,
+                    answer
+                )
 
             history.append({
                 "role": "assistant",
@@ -59,155 +316,21 @@ def run_conversation(client, tavily_client, history, question):
                 "search_log": search_log
             }
 
-        # --------------------------------------------------
-        # AI REQUESTED TOOL(S)
-        # --------------------------------------------------
-
-        history.append({
-            "role": "assistant",
-            "content": message.content,
-            "tool_calls": [
-                {
-                    "id": tc.id,
-                    "type": "function",
-                    "function": {
-                        "name": tc.function.name,
-                        "arguments": tc.function.arguments
-                    }
-                }
-                for tc in message.tool_calls
-            ]
-        })
-
-        for tool_call in message.tool_calls:
-
-            function_name = tool_call.function.name
-
-            try:
-                args = json.loads(tool_call.function.arguments)
-
-            except json.JSONDecodeError:
-
-                tool_result = (
-                    "The tool arguments could not be read correctly. "
-                    "Please answer using the information already available."
-                )
-
-                history.append({
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "content": tool_result
-                })
-
-                continue
-
-            # ----------------------------------------------
-            # SEARCH WEB
-            # ----------------------------------------------
-
-            if function_name == "search_web":
-
-                query = args.get("query")
-
-                if not query:
-                    tool_result = "No search query was provided."
-
-                else:
-                    search_log.append(query)
-
-                    tool_result = search_web(
-                        tavily_client,
-                        query
-                    )
-
-            # ----------------------------------------------
-            # COMPARE PARTS
-            # ----------------------------------------------
-
-            elif function_name == "compare_parts":
-
-                parts = args.get("parts", [])
-
-                if not parts:
-                    tool_result = "No parts were provided for comparison."
-
-                else:
-                    search_log.append(
-                        "Comparing: " + ", ".join(parts)
-                    )
-
-                    tool_result = compare_parts(
-                        tavily_client,
-                        parts,
-                        CURRENT_YEAR
-                    )
-
-            # ----------------------------------------------
-            # GENERATE BUILD
-            # ----------------------------------------------
-
-            elif function_name == "generate_builds":
-
-                budget = args.get("budget")
-                use_case = args.get("use_case")
-                existing_parts = args.get("existing_parts")
-
-                if budget is None or not use_case:
-
-                    tool_result = (
-                        "Budget or use case was missing. "
-                        "Please answer based on the available information."
-                    )
-
-                else:
-
-                    search_log.append(
-                        f"Generating build: Rs.{budget}, {use_case}"
-                    )
-
-                    tool_result = generate_builds(
-                        tavily_client,
-                        budget,
-                        use_case,
-                        existing_parts,
-                        CURRENT_YEAR
-                    )
-
-            # ----------------------------------------------
-            # UNKNOWN TOOL
-            # ----------------------------------------------
-
-            else:
-
-                tool_result = (
-                    f"Unknown tool requested: {function_name}"
-                )
-
-            history.append({
-                "role": "tool",
-                "tool_call_id": tool_call.id,
-                "content": tool_result
-            })
-
-    # --------------------------------------------------
-    # MAX TOOL ROUNDS REACHED
-    #
-    # We now ask for ONE final answer using all information
-    # already collected.
-    # --------------------------------------------------
+    # -------------------------------------------------------------
+    # Safety fallback if AI keeps calling tools
+    # -------------------------------------------------------------
 
     history.append({
         "role": "user",
         "content": (
             "You now have enough information. "
             "Do not call any more tools. "
-            "Give the user your best complete and polished answer "
-            "using the information already collected."
+            "Give your best final answer now."
         )
     })
 
     final = client.chat.completions.create(
-        model="nvidia/nemotron-3-ultra-550b-a55b",
+        model=MODEL,
         messages=history
     )
 
@@ -215,6 +338,14 @@ def run_conversation(client, tavily_client, history, question):
         final.choices[0].message.content
         or "I couldn't generate a final response."
     )
+
+    # Format build if generate_builds was used.
+    if build_tool_used:
+
+        answer = format_build_answer(
+            client,
+            answer
+        )
 
     history.append({
         "role": "assistant",
