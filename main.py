@@ -31,7 +31,7 @@ class AskRequest(BaseModel):
 def health_check():
     """A simple endpoint to check the server is alive. Visit this in a browser.
     Supports both GET and HEAD, since uptime monitors often use HEAD requests."""
-    return {"status": "PC Builder API is running"}
+    return {"status": "PC Builder API is running - test branch"}
 
 
 @app.post("/ask")
