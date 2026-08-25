@@ -1,9 +1,7 @@
+import concurrent.futures
 import datetime
 
-
-def search_web(tavily_client, query, max_results=6):
-    """Actually performs the web search via Tavily. No Streamlit dependency -
-    the caller passes in the tavily_client to use."""
+def search_web(tavily_client, query, max_results=4):
     try:
         response = tavily_client.search(query, max_results=max_results)
         results = response.get("results", [])
@@ -18,23 +16,21 @@ def search_web(tavily_client, query, max_results=6):
 
 
 def compare_parts(tavily_client, parts, current_year):
-    """Runs a separate, focused search for each part (max 3),
-    so each one gets fair, complete information instead of one blended search."""
     if len(parts) > 3:
         parts = parts[:3]
 
-    comparison_results = ""
-    for part in parts:
+    def search_one(part):
         search_query = f"{part} price specs benchmarks {current_year}"
-        result = search_web(tavily_client, search_query, max_results=4)
-        comparison_results += f"=== {part} ===\n{result}\n\n"
+        result = search_web(tavily_client, search_query, max_results=3)
+        return f"=== {part} ===\n{result}\n\n"
 
-    return comparison_results
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+        results = list(executor.map(search_one, parts))
+
+    return "".join(results)
 
 
 def generate_builds(tavily_client, budget, use_case, existing_parts=None, current_year=None):
-    """Searches for parts fitting the budget and use case, so the AI can
-    construct 2-3 complete build options."""
     if current_year is None:
         current_year = str(datetime.date.today().year)
 
@@ -49,5 +45,5 @@ def generate_builds(tavily_client, budget, use_case, existing_parts=None, curren
     if existing_parts:
         search_query += f" compatible with {existing_parts}"
 
-    result = search_web(tavily_client, search_query, max_results=6)
+    result = search_web(tavily_client, search_query, max_results=4)
     return result
