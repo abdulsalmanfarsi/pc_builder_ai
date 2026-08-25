@@ -3,8 +3,11 @@ import datetime
 import time
 
 
-def search_web(tavily_client, query, max_results=4):
-    """Perform a web search and log how long it takes."""
+def search_web(tavily_client, query, max_results=3):
+    """
+    Performs a web search and returns a compact version of the results.
+    Less text is sent back to the AI, which can reduce generation time.
+    """
 
     start_time = time.time()
 
@@ -15,26 +18,37 @@ def search_web(tavily_client, query, max_results=4):
         )
 
         elapsed = time.time() - start_time
-        print(f"\n[TIMING] Tavily search: {elapsed:.2f} seconds")
-        print(f"[SEARCH] {query}\n")
+
+        print(
+            f"\n[TIMING] Tavily search: "
+            f"{elapsed:.2f} seconds"
+        )
 
         results = response.get("results", [])
 
         if not results:
             return "No search results found for this query."
 
-        formatted = ""
+        formatted_results = []
 
         for r in results:
-            formatted += (
-                f"Title: {r.get('title', '')}\n"
-                f"Content: {r.get('content', '')}\n"
-                f"URL: {r.get('url', '')}\n\n"
+
+            title = r.get("title", "")
+            content = r.get("content", "")
+
+            # Limit each search result so huge pages do not get
+            # dumped into the AI's context.
+            content = content[:800]
+
+            formatted_results.append(
+                f"Source: {title}\n"
+                f"Info: {content}"
             )
 
-        return formatted
+        return "\n\n".join(formatted_results)
 
     except Exception as e:
+
         elapsed = time.time() - start_time
 
         print(
@@ -50,18 +64,11 @@ def search_web(tavily_client, query, max_results=4):
 
 
 def compare_parts(tavily_client, parts, current_year):
-    """
-    Compare up to 3 PC parts.
-
-    Searches for each part simultaneously instead of sequentially.
-    """
 
     if len(parts) > 3:
         parts = parts[:3]
 
     start_time = time.time()
-
-    print(f"\n[COMPARE] Comparing: {', '.join(parts)}")
 
     def search_one(part):
 
@@ -76,9 +83,12 @@ def compare_parts(tavily_client, parts, current_year):
             max_results=3
         )
 
-        return f"=== {part} ===\n{result}\n\n"
+        return (
+            f"=== {part} ===\n"
+            f"{result}\n\n"
+        )
 
-    # Run searches in parallel
+    # Search all parts in parallel
     with concurrent.futures.ThreadPoolExecutor(
         max_workers=len(parts)
     ) as executor:
@@ -93,8 +103,8 @@ def compare_parts(tavily_client, parts, current_year):
     elapsed = time.time() - start_time
 
     print(
-        f"[TIMING] Total compare_parts time: "
-        f"{elapsed:.2f} seconds\n"
+        f"\n[TIMING] Total compare_parts time: "
+        f"{elapsed:.2f} seconds"
     )
 
     return "".join(results)
@@ -107,14 +117,11 @@ def generate_builds(
     existing_parts=None,
     current_year=None
 ):
-    """
-    Search for information needed to generate
-    a complete PC build.
-    """
 
     start_time = time.time()
 
     if current_year is None:
+
         current_year = str(
             datetime.date.today().year
         )
@@ -122,17 +129,16 @@ def generate_builds(
     use_case_focus = {
 
         "gpu_heavy":
-            "gaming GPU-intensive PC build "
-            "prioritizing graphics card performance",
+            "gaming GPU-intensive PC build prioritizing "
+            "graphics card performance",
 
         "cpu_heavy":
-            "video editing content creation PC build "
-            "prioritizing CPU multi-core performance",
+            "video editing content creation PC build prioritizing "
+            "CPU multi-core performance",
 
         "casual":
-            "budget daily-use PC build "
-            "prioritizing reliability and lowest cost "
-            "over raw performance"
+            "budget daily-use PC build prioritizing reliability "
+            "and lowest cost over raw performance"
     }
 
     focus_description = use_case_focus.get(
@@ -148,27 +154,28 @@ def generate_builds(
     )
 
     if existing_parts:
+
         search_query += (
             f" compatible with "
             f"{existing_parts}"
         )
 
     print(
-        f"\n[BUILD SEARCH] "
-        f"Budget: {budget}"
+        f"\n[BUILD SEARCH] Budget: "
+        f"{budget}"
     )
 
     result = search_web(
         tavily_client,
         search_query,
-        max_results=4
+        max_results=3
     )
 
     elapsed = time.time() - start_time
 
     print(
-        f"[TIMING] Total generate_builds time: "
-        f"{elapsed:.2f} seconds\n"
+        f"\n[TIMING] Total generate_builds time: "
+        f"{elapsed:.2f} seconds"
     )
 
     return result
