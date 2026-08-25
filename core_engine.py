@@ -11,8 +11,7 @@ from config import TOOLS, CURRENT_YEAR
 from tools import search_web, compare_parts, generate_builds
 
 
-MODEL = "deepseek-ai/deepseek-v4-flash-0731"
-
+MODEL = "stepfun-ai/step-3.7-flash"
 
 def format_build_answer(client, answer):
     """
