@@ -9,6 +9,7 @@ from tavily import TavilyClient
 from config import NVIDIA_API_KEY, TAVILY_API_KEY, SYSTEM_PROMPT
 from core_engine import run_conversation
 from typing import Optional
+import time
 
 app = FastAPI(title="PC Builder Advisor API")
 

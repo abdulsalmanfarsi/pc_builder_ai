@@ -5,6 +5,7 @@ to talk to the PC Builder AI.
 """
 
 import json
+import time
 
 from config import TOOLS, CURRENT_YEAR
 from tools import search_web, compare_parts, generate_builds
@@ -48,42 +49,14 @@ Case: <case or Not specified>
 Estimated Total: <price in INR>
 [/BUILD]
 
-OR, for multiple builds:
-
-[BUILD]
-Name: ...
-Use Case: ...
-CPU: ...
-GPU: ...
-Motherboard: ...
-RAM: ...
-Storage: ...
-PSU: ...
-Cooler: ...
-Case: ...
-Estimated Total: ...
-[/BUILD]
-
-[BUILD]
-Name: ...
-Use Case: ...
-CPU: ...
-GPU: ...
-Motherboard: ...
-RAM: ...
-Storage: ...
-PSU: ...
-Cooler: ...
-Case: ...
-Estimated Total: ...
-[/BUILD]
-
 Original answer:
 
 {answer}
 """
 
     try:
+        format_start = time.time()
+
         response = client.chat.completions.create(
             model=MODEL,
             messages=[
@@ -99,6 +72,13 @@ Original answer:
                     "content": formatter_prompt,
                 },
             ],
+        )
+
+        format_elapsed = time.time() - format_start
+
+        print(
+            f"\n[TIMING] Build formatter: "
+            f"{format_elapsed:.2f} seconds\n"
         )
 
         formatted = response.choices[0].message.content
@@ -141,10 +121,19 @@ def run_conversation(
 
     for round_num in range(MAX_ROUNDS):
 
+        ai_start = time.time()
+
         response = client.chat.completions.create(
             model=MODEL,
             messages=history,
             tools=TOOLS
+        )
+
+        ai_elapsed = time.time() - ai_start
+
+        print(
+            f"\n[TIMING] AI call: "
+            f"{ai_elapsed:.2f} seconds\n"
         )
 
         message = response.choices[0].message
@@ -177,7 +166,9 @@ def run_conversation(
                     args = json.loads(
                         tool_call.function.arguments
                     )
+
                 except json.JSONDecodeError:
+
                     tool_result = (
                         "The tool arguments could not be "
                         "read correctly."
@@ -204,11 +195,13 @@ def run_conversation(
                     query = args.get("query")
 
                     if not query:
+
                         tool_result = (
                             "No search query was provided."
                         )
 
                     else:
+
                         search_log.append(query)
 
                         tool_result = search_web(
@@ -296,8 +289,6 @@ def run_conversation(
                 or "I couldn't generate a response."
             )
 
-            # If a complete PC build was generated,
-            # force the structured format.
             if build_tool_used:
 
                 answer = format_build_answer(
@@ -329,9 +320,18 @@ def run_conversation(
         )
     })
 
+    final_start = time.time()
+
     final = client.chat.completions.create(
         model=MODEL,
         messages=history
+    )
+
+    final_elapsed = time.time() - final_start
+
+    print(
+        f"\n[TIMING] Final AI answer: "
+        f"{final_elapsed:.2f} seconds\n"
     )
 
     answer = (
