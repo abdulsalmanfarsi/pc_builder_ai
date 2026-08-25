@@ -137,7 +137,7 @@ def run_conversation(
     # This lets us know whether the AI used the build generator.
     build_tool_used = False
 
-    MAX_ROUNDS = 3
+    MAX_ROUNDS = 1
 
     for round_num in range(MAX_ROUNDS):
 
