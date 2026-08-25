@@ -11,7 +11,7 @@ from config import TOOLS, CURRENT_YEAR
 from tools import search_web, compare_parts, generate_builds
 
 
-MODEL = "nvidia/nemotron-3-ultra-550b-a55b"
+MODEL = "deepseek-ai/deepseek-v4-flash-0731"
 
 
 def format_build_answer(client, answer):
