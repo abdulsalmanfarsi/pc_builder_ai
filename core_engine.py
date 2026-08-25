@@ -16,8 +16,10 @@ MODEL = "nvidia/nemotron-3-ultra-550b-a55b"
 
 def format_build_answer(client, answer):
     """
-    Takes the AI's normal build recommendation and forces it into
-    the structured [BUILD] format that the mobile app can recognize.
+    Kept for now in case we need it later.
+
+    Currently NOT used because the system prompt already instructs
+    the AI to return complete builds in [BUILD] format.
     """
 
     formatter_prompt = f"""
@@ -114,7 +116,6 @@ def run_conversation(
 
     search_log = []
 
-    # This lets us know whether the AI used the build generator.
     build_tool_used = False
 
     MAX_ROUNDS = 1
@@ -182,9 +183,7 @@ def run_conversation(
 
                     continue
 
-                function_name = (
-                    tool_call.function.name
-                )
+                function_name = tool_call.function.name
 
                 # -------------------------------------------------
                 # WEB SEARCH
@@ -289,12 +288,8 @@ def run_conversation(
                 or "I couldn't generate a response."
             )
 
-            if build_tool_used:
-
-                answer = format_build_answer(
-                    client,
-                    answer
-                )
+            # No formatter call here.
+            # The system prompt should already force [BUILD] format.
 
             history.append({
                 "role": "assistant",
@@ -339,13 +334,9 @@ def run_conversation(
         or "I couldn't generate a final response."
     )
 
-    # Format build if generate_builds was used.
-    if build_tool_used:
-
-        answer = format_build_answer(
-            client,
-            answer
-        )
+    # IMPORTANT:
+    # No format_build_answer() call here.
+    # The AI's system prompt should already produce [BUILD] blocks.
 
     history.append({
         "role": "assistant",
