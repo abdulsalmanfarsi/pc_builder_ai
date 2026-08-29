@@ -3,6 +3,7 @@ Core AI engine logic - no Streamlit dependency.
 This can be used by Streamlit, FastAPI, or anything else that wants
 to talk to the PC Builder AI.
 """
+
 import json
 from config import TOOLS, CURRENT_YEAR
 from tools import search_web, compare_parts, generate_builds
@@ -12,13 +13,16 @@ MODEL = "nvidia/nemotron-3-ultra-550b-a55b"
 
 def run_conversation(client, tavily_client, history, question):
     """
-    Takes the AI client, search client, the full conversation history,
+    Takes the AI client, Tavily client, conversation history,
     and a new question.
 
-    Runs the AI + tool-calling loop and returns:
-    - answer
-    - updated history
-    - search log
+    Runs:
+        AI -> tool -> final AI answer
+
+    Returns:
+        answer
+        updated history
+        search log
     """
 
     history.append({
@@ -28,21 +32,39 @@ def run_conversation(client, tavily_client, history, question):
 
     search_log = []
 
-    MAX_ROUNDS = 2
+    # --------------------------------------------------
+    # ONLY ONE TOOL ROUND
+    # --------------------------------------------------
+    #
+    # This prevents:
+    #
+    # AI -> tool -> AI -> tool -> AI
+    #
+    # For normal PC questions we want:
+    #
+    # AI -> tool -> AI -> DONE
+    #
+    MAX_TOOL_ROUNDS = 1
 
-    for round_num in range(MAX_ROUNDS):
+    # ==================================================
+    # AI + TOOL CALL
+    # ==================================================
+
+    for round_num in range(MAX_TOOL_ROUNDS):
 
         response = client.chat.completions.create(
             model=MODEL,
             messages=history,
-            tools=TOOLS
+            tools=TOOLS,
+            max_tokens=800
         )
 
         message = response.choices[0].message
 
         # --------------------------------------------------
-        # NO TOOL CALLS -> THE AI HAS ITS FINAL ANSWER
+        # AI DID NOT REQUEST A TOOL
         # --------------------------------------------------
+
         if not message.tool_calls:
 
             answer = message.content or "I couldn't generate a response."
@@ -78,18 +100,24 @@ def run_conversation(client, tavily_client, history, question):
             ]
         })
 
+        # --------------------------------------------------
+        # EXECUTE TOOLS
+        # --------------------------------------------------
+
         for tool_call in message.tool_calls:
 
             function_name = tool_call.function.name
 
             try:
-                args = json.loads(tool_call.function.arguments)
+                args = json.loads(
+                    tool_call.function.arguments
+                )
 
             except json.JSONDecodeError:
 
                 tool_result = (
                     "The tool arguments could not be read correctly. "
-                    "Please answer using the information already available."
+                    "Answer using the information already available."
                 )
 
                 history.append({
@@ -100,18 +128,20 @@ def run_conversation(client, tavily_client, history, question):
 
                 continue
 
-            # ----------------------------------------------
+            # ==============================================
             # SEARCH WEB
-            # ----------------------------------------------
+            # ==============================================
 
             if function_name == "search_web":
 
                 query = args.get("query")
 
                 if not query:
+
                     tool_result = "No search query was provided."
 
                 else:
+
                     search_log.append(query)
 
                     tool_result = search_web(
@@ -119,18 +149,22 @@ def run_conversation(client, tavily_client, history, question):
                         query
                     )
 
-            # ----------------------------------------------
+            # ==============================================
             # COMPARE PARTS
-            # ----------------------------------------------
+            # ==============================================
 
             elif function_name == "compare_parts":
 
                 parts = args.get("parts", [])
 
                 if not parts:
-                    tool_result = "No parts were provided for comparison."
+
+                    tool_result = (
+                        "No parts were provided for comparison."
+                    )
 
                 else:
+
                     search_log.append(
                         "Comparing: " + ", ".join(parts)
                     )
@@ -141,9 +175,9 @@ def run_conversation(client, tavily_client, history, question):
                         CURRENT_YEAR
                     )
 
-            # ----------------------------------------------
+            # ==============================================
             # GENERATE BUILD
-            # ----------------------------------------------
+            # ==============================================
 
             elif function_name == "generate_builds":
 
@@ -155,7 +189,7 @@ def run_conversation(client, tavily_client, history, question):
 
                     tool_result = (
                         "Budget or use case was missing. "
-                        "Please answer based on the available information."
+                        "Answer using the available information."
                     )
 
                 else:
@@ -172,9 +206,9 @@ def run_conversation(client, tavily_client, history, question):
                         CURRENT_YEAR
                     )
 
-            # ----------------------------------------------
+            # ==============================================
             # UNKNOWN TOOL
-            # ----------------------------------------------
+            # ==============================================
 
             else:
 
@@ -188,23 +222,32 @@ def run_conversation(client, tavily_client, history, question):
                 "content": tool_result
             })
 
-    # --------------------------------------------------
-    # MAX TOOL ROUNDS REACHED
-    # --------------------------------------------------
+    # ==================================================
+    # FINAL AI ANSWER
+    # ==================================================
+    #
+    # At this point the AI has already received the
+    # search results.
+    #
+    # We now make ONE final, short AI call.
+    # ==================================================
 
     history.append({
-        "role": "user",
+        "role": "system",
         "content": (
-            "You now have enough information. "
+            "You now have the required information. "
+            "Give the final answer immediately. "
             "Do not call any more tools. "
-            "Give the user your best complete and polished answer "
-            "using the information already collected."
+            "Be concise and avoid unnecessary explanations. "
+            "If this is a complete PC build request, "
+            "follow the required [BUILD] format exactly."
         )
     })
 
     final = client.chat.completions.create(
         model=MODEL,
-        messages=history
+        messages=history,
+        max_tokens=1400
     )
 
     answer = (
