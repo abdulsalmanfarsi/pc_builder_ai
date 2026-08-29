@@ -38,7 +38,7 @@ def health_check():
 def ask(request: AskRequest):
     """The main endpoint - takes a question (and optional prior history),
     runs the AI + tool-calling loop, and returns the answer + updated history."""
-    
+
     # If no history was sent, start a brand new conversation with the system prompt
     history = request.history if request.history else [
         {"role": "system", "content": SYSTEM_PROMPT}

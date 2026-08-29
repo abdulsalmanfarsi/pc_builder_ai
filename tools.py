@@ -1,22 +1,12 @@
+import concurrent.futures
 import datetime
-import streamlit as st
 
 
-def get_tavily_client(client_arg=None):
-    if client_arg is not None:
-        return client_arg
-    if hasattr(st, "session_state") and "tavily_client" in st.session_state:
-        return st.session_state.tavily_client
-    return None
-
-
-def search_web(tavily_client=None, query="", max_results=6):
-    client = get_tavily_client(tavily_client)
-    if not client:
-        return "Search client unavailable. Answering using built-in hardware knowledge."
-
+def search_web(tavily_client, query, max_results=4):
+    """Actually performs the web search via Tavily. No Streamlit dependency -
+    the caller passes in the tavily_client to use."""
     try:
-        response = client.search(query, max_results=max_results)
+        response = tavily_client.search(query, max_results=max_results)
         results = response.get("results", [])
         if not results:
             return "No search results found for this query."
@@ -25,36 +15,36 @@ def search_web(tavily_client=None, query="", max_results=6):
             formatted += f"Title: {r['title']}\nContent: {r['content']}\nURL: {r['url']}\n\n"
         return formatted
     except Exception as e:
-        return f"Search failed (error: {e}). Answering using built-in knowledge."
+        return f"Search failed (error: {e}). Please answer using whatever information you already have, and mention that live search wasn't available."
 
 
-def compare_parts(tavily_client=None, parts=None, current_year=None):
-    if parts is None:
-        parts = []
+def compare_parts(tavily_client, parts, current_year):
+    """Runs a separate, focused search for each part (max 3), IN PARALLEL,
+    so each one gets fair, complete information without waiting on each other sequentially."""
     if len(parts) > 3:
         parts = parts[:3]
 
-    client = get_tavily_client(tavily_client)
-    comparison_results = ""
-    for part in parts:
-        search_query = f"{part} price specs benchmarks {current_year or ''}"
-        result = search_web(client, search_query, max_results=4)
-        comparison_results += f"=== {part} ===\n{result}\n\n"
+    def search_one(part):
+        search_query = f"{part} price specs benchmarks {current_year}"
+        result = search_web(tavily_client, search_query, max_results=3)
+        return f"=== {part} ===\n{result}\n\n"
 
-    return comparison_results
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+        results = list(executor.map(search_one, parts))
+
+    return "".join(results)
 
 
-def generate_builds(
-    tavily_client=None, budget="", use_case="", existing_parts=None, current_year=None
-):
-    client = get_tavily_client(tavily_client)
+def generate_builds(tavily_client, budget, use_case, existing_parts=None, current_year=None):
+    """Searches for parts fitting the budget and use case, so the AI can
+    construct 2-3 complete build options."""
     if current_year is None:
         current_year = str(datetime.date.today().year)
 
     use_case_focus = {
-        "gpu_heavy": "gaming/GPU-intensive PC build",
-        "cpu_heavy": "editing/CPU-intensive PC build",
-        "casual": "budget daily-use PC build",
+        "gpu_heavy": "gaming/GPU-intensive PC build, prioritizing graphics card performance",
+        "cpu_heavy": "video editing/content creation PC build, prioritizing CPU multi-core performance",
+        "casual": "budget daily-use PC build, prioritizing reliability and lowest cost over raw performance"
     }
     focus_description = use_case_focus.get(use_case, "general PC build")
 
@@ -62,4 +52,5 @@ def generate_builds(
     if existing_parts:
         search_query += f" compatible with {existing_parts}"
 
-    return search_web(client, search_query, max_results=6)
+    result = search_web(tavily_client, search_query, max_results=4)
+    return result
