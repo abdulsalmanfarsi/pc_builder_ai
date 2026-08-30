@@ -48,7 +48,7 @@ def generate_builds(tavily_client, budget, use_case, existing_parts=None, curren
     }
     focus_description = use_case_focus.get(use_case, "general PC build")
 
-    search_query = search_query = (
+    search_query = (
     f"best {focus_description} PC build "
     f"under {budget} {current_year} "
     f"current local prices complete build"

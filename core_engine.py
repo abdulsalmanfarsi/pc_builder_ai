@@ -9,6 +9,7 @@ from config import TOOLS, CURRENT_YEAR
 from tools import search_web, compare_parts, generate_builds
 
 MODEL = "nvidia/nemotron-3-ultra-550b-a55b"
+FAST_MODEL = "nvidia/llama-3.1-nemotron-70b-instruct" # Much faster for tool selection
 
 
 def run_conversation(client, tavily_client, history, question):
@@ -53,10 +54,10 @@ def run_conversation(client, tavily_client, history, question):
     for round_num in range(MAX_TOOL_ROUNDS):
 
         response = client.chat.completions.create(
-            model=MODEL,
+            model=FAST_MODEL,
             messages=history,
             tools=TOOLS,
-            max_tokens=800
+            max_tokens=400  # tool-selection call — only needs to decide which tool to use, not write a full answer
         )
 
         message = response.choices[0].message
@@ -195,7 +196,7 @@ def run_conversation(client, tavily_client, history, question):
                 else:
 
                     search_log.append(
-                        f"Generating build: Rs.{budget}, {use_case}"
+                        f"Generating build: {budget}, {use_case}"
                     )
 
                     tool_result = generate_builds(
