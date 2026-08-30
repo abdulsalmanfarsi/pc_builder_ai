@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from openai import OpenAI
 from tavily import TavilyClient
-from config import NVIDIA_API_KEY, TAVILY_API_KEY, SYSTEM_PROMPT
+from config import GROQ_API_KEY, TAVILY_API_KEY, SYSTEM_PROMPT
 from core_engine import run_conversation
 from typing import Optional
 
@@ -14,8 +14,8 @@ app = FastAPI(title="PC Builder Advisor API")
 
 # These clients are created once when the server starts, and reused for every request
 client = OpenAI(
-    base_url="https://integrate.api.nvidia.com/v1",
-    api_key=NVIDIA_API_KEY
+    base_url="https://api.groq.com/openai/v1",
+    api_key=GROQ_API_KEY
 )
 tavily_client = TavilyClient(api_key=TAVILY_API_KEY)
 

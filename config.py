@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 NVIDIA_API_KEY = os.environ.get("NVIDIA_API_KEY")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY")
 
 TODAY = datetime.date.today().strftime("%B %d, %Y")
