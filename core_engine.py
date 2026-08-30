@@ -8,7 +8,7 @@ import json
 from config import TOOLS, CURRENT_YEAR
 from tools import search_web, compare_parts, generate_builds
 
-MODEL = "llama-3.3-70b-versatile"
+MODEL = "openai/gpt-oss-120b"
 
 
 def run_conversation(client, tavily_client, history, question):
