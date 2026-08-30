@@ -8,7 +8,7 @@ import json
 from config import TOOLS, CURRENT_YEAR
 from tools import search_web, compare_parts, generate_builds
 
-MODEL = "google/gemini-2.5-flash:free"
+MODEL = "google/gemini-flash-1.5"
 
 
 def run_conversation(client, tavily_client, history, question):
