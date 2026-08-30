@@ -1,126 +1,154 @@
 """
-Core AI engine using Google Gemini API - simple and reliable.
+Core AI engine using Google Gemini via HTTP requests - no SDK needed.
 """
 
-import google.generativeai as genai
-from config import CURRENT_YEAR
+import json
+import requests
+from config import GOOGLE_API_KEY, CURRENT_YEAR
 from tools import search_web, compare_parts, generate_builds
 
 MODEL_NAME = "gemini-1.5-flash"
+API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GOOGLE_API_KEY}"
 
 
-def run_conversation(genai_module, tavily_client, history, question):
+def call_gemini(messages, tools=None):
+    """Call Gemini API directly via HTTP."""
+    headers = {"Content-Type": "application/json"}
+
+    # Convert messages to Gemini format
+    contents = []
+    system_instruction = None
+
+    for msg in messages:
+        if msg["role"] == "system":
+            system_instruction = msg["content"]
+        elif msg["role"] == "user":
+            contents.append({"role": "user", "parts": [{"text": msg["content"]}]})
+        elif msg["role"] == "assistant":
+            contents.append({"role": "model", "parts": [{"text": msg["content"]}]})
+
+    payload = {
+        "contents": contents,
+        "generationConfig": {
+            "temperature": 0.7,
+            "maxOutputTokens": 2500
+        }
+    }
+
+    if system_instruction:
+        payload["systemInstruction"] = {"parts": [{"text": system_instruction}]}
+
+    if tools:
+        payload["tools"] = tools
+
+    response = requests.post(API_URL, headers=headers, json=payload)
+    response.raise_for_status()
+    return response.json()
+
+
+def run_conversation(genai_client, tavily_client, history, question):
     """
     Gemini conversation with manual tool handling.
     """
     search_log = []
 
-    # Extract system prompt
-    system_prompt = ""
-    if history and history[0]["role"] == "system":
-        system_prompt = history[0]["content"]
+    # Build messages
+    messages = list(history) + [{"role": "user", "content": question}]
 
-    # Create model with system instruction
-    model = genai_module.GenerativeModel(
-        model_name=MODEL_NAME,
-        system_instruction=system_prompt
-    )
-
-    # Define tools in Gemini format
-    search_tool = genai_module.protos.Tool(
-        function_declarations=[
-            genai_module.protos.FunctionDeclaration(
-                name="search_web",
-                description="Search the web for current PC part prices, benchmarks, or comparisons",
-                parameters=genai_module.protos.Schema(
-                    type=genai_module.protos.Type.OBJECT,
-                    properties={
-                        "query": genai_module.protos.Schema(type=genai_module.protos.Type.STRING)
+    # Define tools for Gemini
+    tools = [{
+        "function_declarations": [
+            {
+                "name": "search_web",
+                "description": "Search the web for current PC part prices, benchmarks, or comparisons",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "query": {"type": "STRING", "description": "The search query"}
                     },
-                    required=["query"]
-                )
-            ),
-            genai_module.protos.FunctionDeclaration(
-                name="generate_builds",
-                description="Generate complete PC build options for a budget and use case",
-                parameters=genai_module.protos.Schema(
-                    type=genai_module.protos.Type.OBJECT,
-                    properties={
-                        "budget": genai_module.protos.Schema(type=genai_module.protos.Type.STRING),
-                        "use_case": genai_module.protos.Schema(type=genai_module.protos.Type.STRING),
-                        "existing_parts": genai_module.protos.Schema(type=genai_module.protos.Type.STRING)
+                    "required": ["query"]
+                }
+            },
+            {
+                "name": "generate_builds",
+                "description": "Generate complete PC build options for a budget and use case",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "budget": {"type": "STRING"},
+                        "use_case": {"type": "STRING"},
+                        "existing_parts": {"type": "STRING"}
                     },
-                    required=["budget", "use_case"]
-                )
-            ),
-            genai_module.protos.FunctionDeclaration(
-                name="compare_parts",
-                description="Compare 2-3 PC parts side by side",
-                parameters=genai_module.protos.Schema(
-                    type=genai_module.protos.Type.OBJECT,
-                    properties={
-                        "parts": genai_module.protos.Schema(
-                            type=genai_module.protos.Type.ARRAY,
-                            items=genai_module.protos.Schema(type=genai_module.protos.Type.STRING)
-                        )
+                    "required": ["budget", "use_case"]
+                }
+            },
+            {
+                "name": "compare_parts",
+                "description": "Compare 2-3 PC parts side by side",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "parts": {
+                            "type": "ARRAY",
+                            "items": {"type": "STRING"}
+                        }
                     },
-                    required=["parts"]
-                )
-            )
+                    "required": ["parts"]
+                }
+            }
         ]
-    )
+    }]
 
-    # Start chat with tools
-    chat = model.start_chat(enable_automatic_function_calling=False)
+    # Make API call with tools
+    result = call_gemini(messages, tools)
 
-    # Send message with tools
-    response = chat.send_message(question, tools=[search_tool])
+    # Process response
+    candidate = result.get("candidates", [{}])[0]
+    content = candidate.get("content", {})
+    parts = content.get("parts", [{}])
 
+    # Check for function calls
     MAX_ROUNDS = 2
     for round_num in range(MAX_ROUNDS):
-        # Check if model wants to call a function
-        if response.candidates[0].content.parts[0].function_call:
-            function_call = response.candidates[0].content.parts[0].function_call
-            function_name = function_call.name
-            args = dict(function_call.args)
+        if parts and "functionCall" in parts[0]:
+            fc = parts[0]["functionCall"]
+            function_name = fc["name"]
+            args = fc.get("args", {})
 
-            # Execute the tool
+            # Execute tool
             if function_name == "search_web":
                 query = args.get("query", "")
                 search_log.append(query)
-                result = search_web(tavily_client, query)
+                tool_result = search_web(tavily_client, query)
 
             elif function_name == "generate_builds":
                 budget = args.get("budget", "")
                 use_case = args.get("use_case", "")
                 existing = args.get("existing_parts", "")
                 search_log.append(f"Building: {budget}, {use_case}")
-                result = generate_builds(tavily_client, budget, use_case, existing, CURRENT_YEAR)
+                tool_result = generate_builds(tavily_client, budget, use_case, existing, CURRENT_YEAR)
 
             elif function_name == "compare_parts":
-                parts = args.get("parts", [])
-                search_log.append(f"Comparing: {', '.join(parts)}")
-                result = compare_parts(tavily_client, parts, CURRENT_YEAR)
+                parts_list = args.get("parts", [])
+                search_log.append(f"Comparing: {', '.join(parts_list)}")
+                tool_result = compare_parts(tavily_client, parts_list, CURRENT_YEAR)
             else:
-                result = "Unknown tool"
+                tool_result = "Unknown tool"
 
-            # Send function response back
-            response = chat.send_message(
-                genai_module.protos.Content(
-                    parts=[genai_module.protos.Part(
-                        function_response=genai_module.protos.FunctionResponse(
-                            name=function_name,
-                            response={"result": result}
-                        )
-                    )]
-                )
-            )
+            # Add tool call and result to messages
+            messages.append({"role": "model", "content": json.dumps({"functionCall": fc})})
+            messages.append({"role": "user", "content": json.dumps({"functionResponse": {"name": function_name, "response": {"result": tool_result}}})})
+
+            # Call again
+            result = call_gemini(messages, tools)
+            candidate = result.get("candidates", [{}])[0]
+            content = candidate.get("content", {})
+            parts = content.get("parts", [{}])
         else:
-            # No more function calls, we have the answer
             break
 
-    # Get final answer
-    answer = response.text
+    # Extract final text
+    answer = parts[0].get("text", "I couldn't generate a response.") if parts else "No response."
 
     # Update history
     history.append({"role": "user", "content": question})

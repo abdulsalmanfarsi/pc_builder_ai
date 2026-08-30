@@ -4,7 +4,6 @@ Run with: uvicorn main:app --reload
 """
 from fastapi import FastAPI
 from pydantic import BaseModel
-import google.generativeai as genai
 from tavily import TavilyClient
 from config import GOOGLE_API_KEY, TAVILY_API_KEY, SYSTEM_PROMPT
 from core_engine import run_conversation
@@ -12,9 +11,7 @@ from typing import Optional
 
 app = FastAPI(title="PC Builder Advisor API")
 
-# Configure Google Gemini
-genai.configure(api_key=GOOGLE_API_KEY)
-
+# Just need the Tavily client - Gemini is called via HTTP
 tavily_client = TavilyClient(api_key=TAVILY_API_KEY)
 
 
@@ -42,5 +39,5 @@ def ask(request: AskRequest):
         {"role": "system", "content": SYSTEM_PROMPT}
     ]
 
-    result = run_conversation(genai, tavily_client, history, request.question)
+    result = run_conversation(None, tavily_client, history, request.question)
     return result
