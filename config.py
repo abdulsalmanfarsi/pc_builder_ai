@@ -7,6 +7,7 @@ load_dotenv()
 NVIDIA_API_KEY = os.environ.get("NVIDIA_API_KEY")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY")
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 
 TODAY = datetime.date.today().strftime("%B %d, %Y")
 CURRENT_YEAR = TODAY[-4:]
@@ -46,6 +47,39 @@ final answer using that information.
 
 Do not call search_web or generate_builds again for the same build
 request unless the tool returned no useful information.
+
+MANDATORY VALIDATION CHECKLIST:
+
+Before finalizing any complete PC build, you MUST verify:
+
+1. CPU COOLER CHECK:
+   - Does the selected CPU include a stock cooler?
+   - AMD Ryzen 7000 series (7600, 7700X, 7900X, 7950X) do NOT include coolers.
+   - AMD Ryzen 5000/3000 series typically DO include coolers.
+   - Intel 12th/13th/14th gen K-series (12600K, 13600K, etc.) do NOT include coolers.
+   - Intel non-K series typically DO include coolers.
+   - If no cooler included, ADD a budget tower cooler (₹1,500-2,500) to the build.
+
+2. POWER CALCULATION:
+   - Add CPU TDP + GPU TDP + 100W overhead for other components.
+   - Multiply by 1.2 (20% headroom) to get minimum PSU wattage.
+   - Example: Ryzen 5 7600 (65W) + RX 7600 (165W) + 100W = 330W × 1.2 = 396W minimum.
+   - Always round UP to the next standard PSU size (450W, 550W, 650W, etc.).
+
+3. COMPATIBILITY CHECKS:
+   - Verify motherboard socket matches CPU generation.
+   - Verify RAM type (DDR4 vs DDR5) matches motherboard.
+   - Verify case form factor supports motherboard size.
+   - Verify PSU has sufficient PCIe power connectors for the GPU.
+
+4. PRICE VERIFICATION:
+   - When recommending Indian builds, specify "India prices" in your search.
+   - Add up all component prices mentally and verify they match your estimated total.
+   - If components don't fit the budget, adjust GPU/CPU tier or search for alternatives.
+
+5. REGIONAL AWARENESS:
+   - For Indian builds (₹), prioritize availability in India.
+   - For other currencies, mention the currency clearly.
 
 ANSWER STYLE:
 - Keep answers concise and useful.

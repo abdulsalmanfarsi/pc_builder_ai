@@ -8,7 +8,7 @@ import json
 from config import TOOLS, CURRENT_YEAR
 from tools import search_web, compare_parts, generate_builds
 
-MODEL = "openai/gpt-oss-120b"
+MODEL = "google/gemini-2.5-flash:free"
 
 
 def run_conversation(client, tavily_client, history, question):
@@ -33,18 +33,18 @@ def run_conversation(client, tavily_client, history, question):
     search_log = []
 
     # --------------------------------------------------
-    # ONLY ONE TOOL ROUND
+    # TWO TOOL ROUNDS
     # --------------------------------------------------
     #
-    # This prevents:
+    # Allows:
+    # AI -> tool -> AI -> validation tool -> AI -> DONE
     #
-    # AI -> tool -> AI -> tool -> AI
+    # This enables the AI to:
+    # 1. Search for build components
+    # 2. Validate critical details (cooler inclusion, compatibility)
+    # 3. Provide final answer
     #
-    # For normal PC questions we want:
-    #
-    # AI -> tool -> AI -> DONE
-    #
-    MAX_TOOL_ROUNDS = 1
+    MAX_TOOL_ROUNDS = 2
 
     # ==================================================
     # AI + TOOL CALL
@@ -56,7 +56,7 @@ def run_conversation(client, tavily_client, history, question):
             model=MODEL,
             messages=history,
             tools=TOOLS,
-            max_tokens=400  # tool-selection call — only needs to decide which tool to use, not write a full answer
+            max_tokens=800  # tool-selection call with more reasoning space
         )
 
         message = response.choices[0].message
@@ -247,7 +247,7 @@ def run_conversation(client, tavily_client, history, question):
     final = client.chat.completions.create(
         model=MODEL,
         messages=history,
-        max_tokens=1400
+        max_tokens=2500
     )
 
     answer = (

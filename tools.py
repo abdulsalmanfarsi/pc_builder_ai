@@ -48,13 +48,24 @@ def generate_builds(tavily_client, budget, use_case, existing_parts=None, curren
     }
     focus_description = use_case_focus.get(use_case, "general PC build")
 
+    # Determine region based on currency in budget
+    region_hint = ""
+    if "rupee" in budget.lower() or "₹" in budget or "inr" in budget.lower():
+        region_hint = "India "
+    elif "$" in budget and "aus" not in budget.lower():
+        region_hint = "USA "
+    elif "€" in budget or "euro" in budget.lower():
+        region_hint = "Europe "
+    elif "£" in budget or "gbp" in budget.lower():
+        region_hint = "UK "
+
     search_query = (
-    f"best {focus_description} PC build "
-    f"under {budget} {current_year} "
-    f"current local prices complete build"
+        f"best {focus_description} PC build "
+        f"{region_hint}under {budget} {current_year} "
+        f"current prices complete parts list CPU GPU motherboard RAM storage PSU case cooler"
     )
     if existing_parts:
         search_query += f" compatible with {existing_parts}"
 
-    result = search_web(tavily_client, search_query, max_results=4)
+    result = search_web(tavily_client, search_query, max_results=5)
     return result

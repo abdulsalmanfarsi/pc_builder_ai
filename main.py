@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from openai import OpenAI
 from tavily import TavilyClient
-from config import GROQ_API_KEY, TAVILY_API_KEY, SYSTEM_PROMPT
+from config import GROQ_API_KEY, TAVILY_API_KEY, OPENROUTER_API_KEY, SYSTEM_PROMPT
 from core_engine import run_conversation
 from typing import Optional
 
