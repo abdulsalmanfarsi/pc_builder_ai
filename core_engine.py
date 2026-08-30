@@ -1,264 +1,130 @@
 """
-Core AI engine logic - no Streamlit dependency.
-This can be used by Streamlit, FastAPI, or anything else that wants
-to talk to the PC Builder AI.
+Core AI engine using Google Gemini API - simple and reliable.
 """
 
-import json
-from config import TOOLS, CURRENT_YEAR
+import google.generativeai as genai
+from config import CURRENT_YEAR
 from tools import search_web, compare_parts, generate_builds
 
-MODEL = "google/gemini-flash-1.5"
+MODEL_NAME = "gemini-1.5-flash"
 
 
-def run_conversation(client, tavily_client, history, question):
+def run_conversation(genai_module, tavily_client, history, question):
     """
-    Takes the AI client, Tavily client, conversation history,
-    and a new question.
-
-    Runs:
-        AI -> tool -> final AI answer
-
-    Returns:
-        answer
-        updated history
-        search log
+    Gemini conversation with manual tool handling.
     """
-
-    history.append({
-        "role": "user",
-        "content": question
-    })
-
     search_log = []
 
-    # --------------------------------------------------
-    # TWO TOOL ROUNDS
-    # --------------------------------------------------
-    #
-    # Allows:
-    # AI -> tool -> AI -> validation tool -> AI -> DONE
-    #
-    # This enables the AI to:
-    # 1. Search for build components
-    # 2. Validate critical details (cooler inclusion, compatibility)
-    # 3. Provide final answer
-    #
-    MAX_TOOL_ROUNDS = 2
+    # Extract system prompt
+    system_prompt = ""
+    if history and history[0]["role"] == "system":
+        system_prompt = history[0]["content"]
 
-    # ==================================================
-    # AI + TOOL CALL
-    # ==================================================
+    # Create model with system instruction
+    model = genai_module.GenerativeModel(
+        model_name=MODEL_NAME,
+        system_instruction=system_prompt
+    )
 
-    for round_num in range(MAX_TOOL_ROUNDS):
-
-        response = client.chat.completions.create(
-            model=MODEL,
-            messages=history,
-            tools=TOOLS,
-            max_tokens=800  # tool-selection call with more reasoning space
-        )
-
-        message = response.choices[0].message
-
-        # --------------------------------------------------
-        # AI DID NOT REQUEST A TOOL
-        # --------------------------------------------------
-
-        if not message.tool_calls:
-
-            answer = message.content or "I couldn't generate a response."
-
-            history.append({
-                "role": "assistant",
-                "content": answer
-            })
-
-            return {
-                "answer": answer,
-                "history": history,
-                "search_log": search_log
-            }
-
-        # --------------------------------------------------
-        # AI REQUESTED TOOL(S)
-        # --------------------------------------------------
-
-        history.append({
-            "role": "assistant",
-            "content": message.content,
-            "tool_calls": [
-                {
-                    "id": tc.id,
-                    "type": "function",
-                    "function": {
-                        "name": tc.function.name,
-                        "arguments": tc.function.arguments
-                    }
-                }
-                for tc in message.tool_calls
-            ]
-        })
-
-        # --------------------------------------------------
-        # EXECUTE TOOLS
-        # --------------------------------------------------
-
-        for tool_call in message.tool_calls:
-
-            function_name = tool_call.function.name
-
-            try:
-                args = json.loads(
-                    tool_call.function.arguments
+    # Define tools in Gemini format
+    search_tool = genai_module.protos.Tool(
+        function_declarations=[
+            genai_module.protos.FunctionDeclaration(
+                name="search_web",
+                description="Search the web for current PC part prices, benchmarks, or comparisons",
+                parameters=genai_module.protos.Schema(
+                    type=genai_module.protos.Type.OBJECT,
+                    properties={
+                        "query": genai_module.protos.Schema(type=genai_module.protos.Type.STRING)
+                    },
+                    required=["query"]
                 )
-
-            except json.JSONDecodeError:
-
-                tool_result = (
-                    "The tool arguments could not be read correctly. "
-                    "Answer using the information already available."
+            ),
+            genai_module.protos.FunctionDeclaration(
+                name="generate_builds",
+                description="Generate complete PC build options for a budget and use case",
+                parameters=genai_module.protos.Schema(
+                    type=genai_module.protos.Type.OBJECT,
+                    properties={
+                        "budget": genai_module.protos.Schema(type=genai_module.protos.Type.STRING),
+                        "use_case": genai_module.protos.Schema(type=genai_module.protos.Type.STRING),
+                        "existing_parts": genai_module.protos.Schema(type=genai_module.protos.Type.STRING)
+                    },
+                    required=["budget", "use_case"]
                 )
+            ),
+            genai_module.protos.FunctionDeclaration(
+                name="compare_parts",
+                description="Compare 2-3 PC parts side by side",
+                parameters=genai_module.protos.Schema(
+                    type=genai_module.protos.Type.OBJECT,
+                    properties={
+                        "parts": genai_module.protos.Schema(
+                            type=genai_module.protos.Type.ARRAY,
+                            items=genai_module.protos.Schema(type=genai_module.protos.Type.STRING)
+                        )
+                    },
+                    required=["parts"]
+                )
+            )
+        ]
+    )
 
-                history.append({
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "content": tool_result
-                })
+    # Start chat with tools
+    chat = model.start_chat(enable_automatic_function_calling=False)
 
-                continue
+    # Send message with tools
+    response = chat.send_message(question, tools=[search_tool])
 
-            # ==============================================
-            # SEARCH WEB
-            # ==============================================
+    MAX_ROUNDS = 2
+    for round_num in range(MAX_ROUNDS):
+        # Check if model wants to call a function
+        if response.candidates[0].content.parts[0].function_call:
+            function_call = response.candidates[0].content.parts[0].function_call
+            function_name = function_call.name
+            args = dict(function_call.args)
 
+            # Execute the tool
             if function_name == "search_web":
-
-                query = args.get("query")
-
-                if not query:
-
-                    tool_result = "No search query was provided."
-
-                else:
-
-                    search_log.append(query)
-
-                    tool_result = search_web(
-                        tavily_client,
-                        query
-                    )
-
-            # ==============================================
-            # COMPARE PARTS
-            # ==============================================
-
-            elif function_name == "compare_parts":
-
-                parts = args.get("parts", [])
-
-                if not parts:
-
-                    tool_result = (
-                        "No parts were provided for comparison."
-                    )
-
-                else:
-
-                    search_log.append(
-                        "Comparing: " + ", ".join(parts)
-                    )
-
-                    tool_result = compare_parts(
-                        tavily_client,
-                        parts,
-                        CURRENT_YEAR
-                    )
-
-            # ==============================================
-            # GENERATE BUILD
-            # ==============================================
+                query = args.get("query", "")
+                search_log.append(query)
+                result = search_web(tavily_client, query)
 
             elif function_name == "generate_builds":
+                budget = args.get("budget", "")
+                use_case = args.get("use_case", "")
+                existing = args.get("existing_parts", "")
+                search_log.append(f"Building: {budget}, {use_case}")
+                result = generate_builds(tavily_client, budget, use_case, existing, CURRENT_YEAR)
 
-                budget = args.get("budget")
-                use_case = args.get("use_case")
-                existing_parts = args.get("existing_parts")
-
-                if budget is None or not use_case:
-
-                    tool_result = (
-                        "Budget or use case was missing. "
-                        "Answer using the available information."
-                    )
-
-                else:
-
-                    search_log.append(
-                        f"Generating build: {budget}, {use_case}"
-                    )
-
-                    tool_result = generate_builds(
-                        tavily_client,
-                        budget,
-                        use_case,
-                        existing_parts,
-                        CURRENT_YEAR
-                    )
-
-            # ==============================================
-            # UNKNOWN TOOL
-            # ==============================================
-
+            elif function_name == "compare_parts":
+                parts = args.get("parts", [])
+                search_log.append(f"Comparing: {', '.join(parts)}")
+                result = compare_parts(tavily_client, parts, CURRENT_YEAR)
             else:
+                result = "Unknown tool"
 
-                tool_result = (
-                    f"Unknown tool requested: {function_name}"
+            # Send function response back
+            response = chat.send_message(
+                genai_module.protos.Content(
+                    parts=[genai_module.protos.Part(
+                        function_response=genai_module.protos.FunctionResponse(
+                            name=function_name,
+                            response={"result": result}
+                        )
+                    )]
                 )
+            )
+        else:
+            # No more function calls, we have the answer
+            break
 
-            history.append({
-                "role": "tool",
-                "tool_call_id": tool_call.id,
-                "content": tool_result
-            })
+    # Get final answer
+    answer = response.text
 
-    # ==================================================
-    # FINAL AI ANSWER
-    # ==================================================
-    #
-    # At this point the AI has already received the
-    # search results.
-    #
-    # We now make ONE final, short AI call.
-    # ==================================================
-
-    history.append({
-        "role": "system",
-        "content": (
-            "You now have the required information. "
-            "Give the final answer immediately. "
-            "Do not call any more tools. "
-            "Be concise and avoid unnecessary explanations. "
-            "If this is a complete PC build request, "
-            "follow the required [BUILD] format exactly."
-        )
-    })
-
-    final = client.chat.completions.create(
-        model=MODEL,
-        messages=history,
-        max_tokens=2500
-    )
-
-    answer = (
-        final.choices[0].message.content
-        or "I couldn't generate a final response."
-    )
-
-    history.append({
-        "role": "assistant",
-        "content": answer
-    })
+    # Update history
+    history.append({"role": "user", "content": question})
+    history.append({"role": "assistant", "content": answer})
 
     return {
         "answer": answer,

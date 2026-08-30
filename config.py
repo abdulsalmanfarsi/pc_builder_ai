@@ -7,7 +7,7 @@ load_dotenv()
 NVIDIA_API_KEY = os.environ.get("NVIDIA_API_KEY")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY")
-OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
+GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
 
 TODAY = datetime.date.today().strftime("%B %d, %Y")
 CURRENT_YEAR = TODAY[-4:]
@@ -193,7 +193,64 @@ For complete PC build requests, ALWAYS produce the [BUILD] block.
 The application depends on this format to display the build card.
 """
 
-TOOLS = [
+TOOLS_GEMINI = [
+    {
+        "function_declarations": [
+            {
+                "name": "search_web",
+                "description": "Search the web for current information, like PC part prices, benchmarks, or recent comparisons.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "The search query to look up"
+                        }
+                    },
+                    "required": ["query"]
+                }
+            },
+            {
+                "name": "compare_parts",
+                "description": "Compare 2 or 3 specific PC parts side by side (e.g. GPUs, CPUs). Runs a dedicated, thorough search for EACH part separately.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "parts": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "List of 2 to 3 part names to compare"
+                        }
+                    },
+                    "required": ["parts"]
+                }
+            },
+            {
+                "name": "generate_builds",
+                "description": "Generate complete PC build options for a given budget and use case.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "budget": {
+                            "type": "string",
+                            "description": "The user's complete budget INCLUDING the currency"
+                        },
+                        "use_case": {
+                            "type": "string",
+                            "enum": ["gpu_heavy", "cpu_heavy", "casual"],
+                            "description": "gpu_heavy = gaming, cpu_heavy = editing, casual = daily use"
+                        },
+                        "existing_parts": {
+                            "type": "string",
+                            "description": "Optional. Any parts the user already owns"
+                        }
+                    },
+                    "required": ["budget", "use_case"]
+                }
+            }
+        ]
+    }
+]
     {
         "type": "function",
         "function": {

@@ -4,19 +4,17 @@ Run with: uvicorn main:app --reload
 """
 from fastapi import FastAPI
 from pydantic import BaseModel
-from openai import OpenAI
+import google.generativeai as genai
 from tavily import TavilyClient
-from config import GROQ_API_KEY, TAVILY_API_KEY, OPENROUTER_API_KEY, SYSTEM_PROMPT
+from config import GOOGLE_API_KEY, TAVILY_API_KEY, SYSTEM_PROMPT
 from core_engine import run_conversation
 from typing import Optional
 
 app = FastAPI(title="PC Builder Advisor API")
 
-# These clients are created once when the server starts, and reused for every request
-client = OpenAI(
-    base_url="https://api.groq.com/openai/v1",
-    api_key=GROQ_API_KEY
-)
+# Configure Google Gemini
+genai.configure(api_key=GOOGLE_API_KEY)
+
 tavily_client = TavilyClient(api_key=TAVILY_API_KEY)
 
 
@@ -44,5 +42,5 @@ def ask(request: AskRequest):
         {"role": "system", "content": SYSTEM_PROMPT}
     ]
 
-    result = run_conversation(client, tavily_client, history, request.question)
+    result = run_conversation(genai, tavily_client, history, request.question)
     return result
