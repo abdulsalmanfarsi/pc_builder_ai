@@ -30,9 +30,10 @@ def call_gemini(messages, tools=None):
             # real functionCall part, or Gemini loses track of what it asked for.
             contents.append({"role": "model", "parts": [{"functionCall": msg["content"]}]})
         elif msg["role"] == "function_response":
-            # The tool's result - must be sent back as a real functionResponse
-            # part (role "function"), not plain text, or Gemini can't parse it.
-            contents.append({"role": "function", "parts": [{"functionResponse": msg["content"]}]})
+            # The tool's result - Gemini's generateContent REST API only accepts
+            # role "user" or "model" (no "function" role exists here), so the
+            # functionResponse part goes back under "user".
+            contents.append({"role": "user", "parts": [{"functionResponse": msg["content"]}]})
 
     payload = {
         "contents": contents,
