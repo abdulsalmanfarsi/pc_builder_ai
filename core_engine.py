@@ -50,6 +50,11 @@ def call_gemini(messages, tools=None):
         payload["tools"] = tools
 
     response = requests.post(API_URL, headers=headers, json=payload)
+    if not response.ok:
+        # flush=True forces this to appear in Render's logs immediately,
+        # even if stdout is buffered - otherwise it can be lost when the
+        # process errors out right after.
+        print(f"Gemini API error {response.status_code}: {response.text}", flush=True)
     response.raise_for_status()
     return response.json()
 
