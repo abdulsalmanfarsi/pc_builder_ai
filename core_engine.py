@@ -2,12 +2,11 @@
 Core AI engine using Google Gemini via HTTP requests - no SDK needed.
 """
 
-import json
 import requests
-from config import GOOGLE_API_KEY, CURRENT_YEAR
+from config import GOOGLE_API_KEY, CURRENT_YEAR, TOOLS_GEMINI
 from tools import search_web, compare_parts, generate_builds
 
-MODEL_NAME = "gemini-1.5-flash"
+MODEL_NAME = "gemini-3.5-flash-lite"
 API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={GOOGLE_API_KEY}"
 
 
@@ -26,6 +25,14 @@ def call_gemini(messages, tools=None):
             contents.append({"role": "user", "parts": [{"text": msg["content"]}]})
         elif msg["role"] == "assistant":
             contents.append({"role": "model", "parts": [{"text": msg["content"]}]})
+        elif msg["role"] == "function_call":
+            # The model's own request to call a tool - must be sent back as a
+            # real functionCall part, or Gemini loses track of what it asked for.
+            contents.append({"role": "model", "parts": [{"functionCall": msg["content"]}]})
+        elif msg["role"] == "function_response":
+            # The tool's result - must be sent back as a real functionResponse
+            # part (role "function"), not plain text, or Gemini can't parse it.
+            contents.append({"role": "function", "parts": [{"functionResponse": msg["content"]}]})
 
     payload = {
         "contents": contents,
@@ -46,7 +53,7 @@ def call_gemini(messages, tools=None):
     return response.json()
 
 
-def run_conversation(genai_client, tavily_client, history, question):
+def run_conversation(tavily_client, history, question):
     """
     Gemini conversation with manual tool handling.
     """
@@ -55,49 +62,8 @@ def run_conversation(genai_client, tavily_client, history, question):
     # Build messages
     messages = list(history) + [{"role": "user", "content": question}]
 
-    # Define tools for Gemini
-    tools = [{
-        "function_declarations": [
-            {
-                "name": "search_web",
-                "description": "Search the web for current PC part prices, benchmarks, or comparisons",
-                "parameters": {
-                    "type": "OBJECT",
-                    "properties": {
-                        "query": {"type": "STRING", "description": "The search query"}
-                    },
-                    "required": ["query"]
-                }
-            },
-            {
-                "name": "generate_builds",
-                "description": "Generate complete PC build options for a budget and use case",
-                "parameters": {
-                    "type": "OBJECT",
-                    "properties": {
-                        "budget": {"type": "STRING"},
-                        "use_case": {"type": "STRING"},
-                        "existing_parts": {"type": "STRING"}
-                    },
-                    "required": ["budget", "use_case"]
-                }
-            },
-            {
-                "name": "compare_parts",
-                "description": "Compare 2-3 PC parts side by side",
-                "parameters": {
-                    "type": "OBJECT",
-                    "properties": {
-                        "parts": {
-                            "type": "ARRAY",
-                            "items": {"type": "STRING"}
-                        }
-                    },
-                    "required": ["parts"]
-                }
-            }
-        ]
-    }]
+    # Use the single source-of-truth tool schema from config.py
+    tools = TOOLS_GEMINI
 
     # Make API call with tools
     result = call_gemini(messages, tools)
@@ -135,9 +101,10 @@ def run_conversation(genai_client, tavily_client, history, question):
             else:
                 tool_result = "Unknown tool"
 
-            # Add tool call and result to messages
-            messages.append({"role": "model", "content": json.dumps({"functionCall": fc})})
-            messages.append({"role": "user", "content": json.dumps({"functionResponse": {"name": function_name, "response": {"result": tool_result}}})})
+            # Add tool call and result to messages, using roles call_gemini()
+            # now knows how to convert into real functionCall/functionResponse parts
+            messages.append({"role": "function_call", "content": fc})
+            messages.append({"role": "function_response", "content": {"name": function_name, "response": {"result": tool_result}}})
 
             # Call again
             result = call_gemini(messages, tools)

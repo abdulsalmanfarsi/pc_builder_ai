@@ -5,7 +5,7 @@ Run with: uvicorn main:app --reload
 from fastapi import FastAPI
 from pydantic import BaseModel
 from tavily import TavilyClient
-from config import GOOGLE_API_KEY, TAVILY_API_KEY, SYSTEM_PROMPT
+from config import TAVILY_API_KEY, SYSTEM_PROMPT
 from core_engine import run_conversation
 from typing import Optional
 
@@ -39,5 +39,5 @@ def ask(request: AskRequest):
         {"role": "system", "content": SYSTEM_PROMPT}
     ]
 
-    result = run_conversation(None, tavily_client, history, request.question)
+    result = run_conversation(tavily_client, history, request.question)
     return result

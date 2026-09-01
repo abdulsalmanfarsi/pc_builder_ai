@@ -4,15 +4,15 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-NVIDIA_API_KEY = os.environ.get("NVIDIA_API_KEY")
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+# NVIDIA_API_KEY = os.environ.get("NVIDIA_API_KEY")
+# GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY")
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
 
 TODAY = datetime.date.today().strftime("%B %d, %Y")
 CURRENT_YEAR = TODAY[-4:]
 
-SYSTEM_PROMPT = SYSTEM_PROMPT = f"""
+SYSTEM_PROMPT = f"""
 You are a knowledgeable, honest PC building advisor.
 
 Today's actual date is {TODAY}.
@@ -200,10 +200,10 @@ TOOLS_GEMINI = [
                 "name": "search_web",
                 "description": "Search the web for current information, like PC part prices, benchmarks, or recent comparisons.",
                 "parameters": {
-                    "type": "object",
+                    "type": "OBJECT",
                     "properties": {
                         "query": {
-                            "type": "string",
+                            "type": "STRING",
                             "description": "The search query to look up"
                         }
                     },
@@ -214,11 +214,11 @@ TOOLS_GEMINI = [
                 "name": "compare_parts",
                 "description": "Compare 2 or 3 specific PC parts side by side (e.g. GPUs, CPUs). Runs a dedicated, thorough search for EACH part separately.",
                 "parameters": {
-                    "type": "object",
+                    "type": "OBJECT",
                     "properties": {
                         "parts": {
-                            "type": "array",
-                            "items": {"type": "string"},
+                            "type": "ARRAY",
+                            "items": {"type": "STRING"},
                             "description": "List of 2 to 3 part names to compare"
                         }
                     },
@@ -229,19 +229,19 @@ TOOLS_GEMINI = [
                 "name": "generate_builds",
                 "description": "Generate complete PC build options for a given budget and use case.",
                 "parameters": {
-                    "type": "object",
+                    "type": "OBJECT",
                     "properties": {
                         "budget": {
-                            "type": "string",
+                            "type": "STRING",
                             "description": "The user's complete budget INCLUDING the currency"
                         },
                         "use_case": {
-                            "type": "string",
+                            "type": "STRING",
                             "enum": ["gpu_heavy", "cpu_heavy", "casual"],
                             "description": "gpu_heavy = gaming, cpu_heavy = editing, casual = daily use"
                         },
                         "existing_parts": {
-                            "type": "string",
+                            "type": "STRING",
                             "description": "Optional. Any parts the user already owns"
                         }
                     },
