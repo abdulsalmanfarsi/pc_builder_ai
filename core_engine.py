@@ -187,7 +187,6 @@ def call_gemini(messages, tools=None):
 # ==================================================
 
 def run_conversation(
-    client,
     tavily_client,
     history,
     question
