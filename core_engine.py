@@ -6,7 +6,12 @@ import re
 import requests
 
 from config import GOOGLE_API_KEY, CURRENT_YEAR, TOOLS_GEMINI
-from tools import search_web, compare_parts, generate_builds
+from tools import (
+    search_web,
+    compare_parts,
+    generate_builds,
+    verify_component_prices,
+)
 
 
 MODEL_NAME = "gemini-3.5-flash-lite"
@@ -28,7 +33,6 @@ def call_gemini(messages, tools=None):
         "Content-Type": "application/json"
     }
 
-    # Convert internal conversation messages to Gemini format
     contents = []
     system_instruction = None
 
@@ -36,17 +40,9 @@ def call_gemini(messages, tools=None):
 
         role = msg.get("role")
 
-        # ----------------------------------------------
-        # SYSTEM MESSAGE
-        # ----------------------------------------------
-
         if role == "system":
 
             system_instruction = msg.get("content", "")
-
-        # ----------------------------------------------
-        # USER MESSAGE
-        # ----------------------------------------------
 
         elif role == "user":
 
@@ -59,10 +55,6 @@ def call_gemini(messages, tools=None):
                 ]
             })
 
-        # ----------------------------------------------
-        # ASSISTANT MESSAGE
-        # ----------------------------------------------
-
         elif role == "assistant":
 
             contents.append({
@@ -73,10 +65,6 @@ def call_gemini(messages, tools=None):
                     }
                 ]
             })
-
-        # ----------------------------------------------
-        # FUNCTION CALL
-        # ----------------------------------------------
 
         elif role == "function_call":
 
@@ -91,17 +79,12 @@ def call_gemini(messages, tools=None):
             )
 
             if thought_signature:
-
                 part["thoughtSignature"] = thought_signature
 
             contents.append({
                 "role": "model",
                 "parts": [part]
             })
-
-        # ----------------------------------------------
-        # FUNCTION RESPONSE
-        # ----------------------------------------------
 
         elif role == "function_response":
 
@@ -114,10 +97,6 @@ def call_gemini(messages, tools=None):
                 ]
             })
 
-    # ==================================================
-    # API PAYLOAD
-    # ==================================================
-
     payload = {
         "contents": contents,
         "generationConfig": {
@@ -126,7 +105,6 @@ def call_gemini(messages, tools=None):
         }
     }
 
-    # Add system instruction
     if system_instruction:
 
         payload["systemInstruction"] = {
@@ -137,14 +115,8 @@ def call_gemini(messages, tools=None):
             ]
         }
 
-    # Add tools if enabled
     if tools:
-
         payload["tools"] = tools
-
-    # ==================================================
-    # API REQUEST
-    # ==================================================
 
     try:
 
@@ -167,10 +139,6 @@ def call_gemini(messages, tools=None):
             f"Gemini API request failed: {error}"
         )
 
-    # ==================================================
-    # API ERROR
-    # ==================================================
-
     if not response.ok:
 
         raise RuntimeError(
@@ -189,15 +157,38 @@ def call_gemini(messages, tools=None):
 def run_conversation(
     tavily_client,
     history,
-    question
+    question,
+    country="",
+    currency=""
 ):
 
     # ==================================================
     # KEEP ORIGINAL USER QUESTION
     # ==================================================
 
-    # This is what will permanently be stored in history.
     original_question = question
+
+
+    # ==================================================
+    # MARKET CONTEXT
+    # ==================================================
+
+    # The frontend provides this information.
+    # Never infer a country from a currency symbol.
+
+    market_context = ""
+
+    if country or currency:
+
+        market_context = (
+            "\n\nUSER MARKET CONTEXT:\n"
+            f"Country/Market: {country or 'Not specified'}\n"
+            f"Currency: {currency or 'Not specified'}\n"
+            "\n"
+            "Use this market context for component availability "
+            "and price searches. Do not assume another country "
+            "or market unless the user explicitly asks you to.\n"
+        )
 
 
     # ==================================================
@@ -208,17 +199,14 @@ def run_conversation(
 
     for msg in reversed(history):
 
-        # Only look at AI responses
         if msg.get("role") != "assistant":
             continue
 
         content = msg.get("content", "")
 
-        # Skip messages without a build
         if "[BUILD]" not in content:
             continue
 
-        # Extract only the BUILD block
         match = re.search(
             r"\[BUILD\](.*?)\[/BUILD\]",
             content,
@@ -240,9 +228,13 @@ def run_conversation(
     # CREATE TEMPORARY AI QUESTION
     # ==================================================
 
-    # Gemini receives this version.
-    # The extra context is NOT permanently saved in history.
     question_for_ai = original_question
+
+    # Add market context only for Gemini.
+    # The original question remains clean in history.
+
+    question_for_ai += market_context
+
 
     if previous_build_text:
 
@@ -275,10 +267,8 @@ this previous build.
     # BUILD GEMINI MESSAGE LIST
     # ==================================================
 
-    # Start with existing conversation history
     messages = list(history)
 
-    # Add ONLY ONE current user question
     messages.append({
         "role": "user",
         "content": question_for_ai
@@ -321,23 +311,18 @@ this previous build.
     # TOOL CALL LOOP
     # ==================================================
 
-    MAX_ROUNDS = 2
+    MAX_ROUNDS = 3
 
     for round_num in range(MAX_ROUNDS):
 
         function_call_found = False
 
 
-        # Check ALL response parts
         for part in parts:
 
             if "functionCall" not in part:
                 continue
 
-
-            # ==================================================
-            # EXTRACT FUNCTION CALL
-            # ==================================================
 
             fc = part["functionCall"]
 
@@ -355,9 +340,9 @@ this previous build.
             )
 
 
-            # ==================================================
-            # EXECUTE SEARCH WEB
-            # ==================================================
+            # ==============================================
+            # SEARCH WEB
+            # ==============================================
 
             if function_name == "search_web":
 
@@ -368,13 +353,24 @@ this previous build.
 
                 if query:
 
+                    # Force the user's market into searches
+                    # when a market is available.
+
+                    market_query = query
+
+                    if country:
+                        market_query += f" {country}"
+
+                    if currency:
+                        market_query += f" prices in {currency}"
+
                     search_log.append(
-                        query
+                        market_query
                     )
 
                     tool_result = search_web(
                         tavily_client,
-                        query
+                        market_query
                     )
 
                 else:
@@ -384,9 +380,9 @@ this previous build.
                     )
 
 
-            # ==================================================
-            # EXECUTE GENERATE BUILDS
-            # ==================================================
+            # ==============================================
+            # GENERATE BUILDS
+            # ==============================================
 
             elif function_name == "generate_builds":
 
@@ -408,17 +404,18 @@ this previous build.
                 if budget and use_case:
 
                     search_log.append(
-                        f"Building: "
-                        f"{budget}, "
-                        f"{use_case}"
+                        f"Building: {budget}, {use_case}, "
+                        f"Market: {country or 'Not specified'}, "
+                        f"Currency: {currency or 'Not specified'}"
                     )
 
                     tool_result = generate_builds(
-                        tavily_client,
-                        budget,
-                        use_case,
-                        existing_parts,
-                        CURRENT_YEAR
+                        tavily_client=tavily_client,
+                        budget=budget,
+                        use_case=use_case,
+                        existing_parts=existing_parts,
+                        region=country,
+                        current_year=CURRENT_YEAR
                     )
 
                 else:
@@ -428,9 +425,9 @@ this previous build.
                     )
 
 
-            # ==================================================
-            # EXECUTE COMPARE PARTS
-            # ==================================================
+            # ==============================================
+            # COMPARE PARTS
+            # ==============================================
 
             elif function_name == "compare_parts":
 
@@ -460,9 +457,52 @@ this previous build.
                     )
 
 
-            # ==================================================
+            # ==============================================
+            # VERIFY COMPONENT PRICES
+            # ==============================================
+
+            elif function_name == "verify_component_prices":
+
+                components = args.get(
+                    "components",
+                    []
+                )
+
+                if components:
+
+                    # Do not trust the model to select
+                    # a different region. Use frontend market.
+
+                    verification_region = country
+
+                    search_log.append(
+                        "Verifying prices: "
+                        + ", ".join(components)
+                        + (
+                            f" | Market: {verification_region}"
+                            if verification_region
+                            else ""
+                        )
+                    )
+
+                    tool_result = verify_component_prices(
+                        tavily_client=tavily_client,
+                        components=components,
+                        region=verification_region,
+                        current_year=CURRENT_YEAR
+                    )
+
+                else:
+
+                    tool_result = (
+                        "No components were provided "
+                        "for price verification."
+                    )
+
+
+            # ==============================================
             # UNKNOWN TOOL
-            # ==================================================
+            # ==============================================
 
             else:
 
@@ -472,9 +512,9 @@ this previous build.
                 )
 
 
-            # ==================================================
-            # ADD FUNCTION CALL TO CONVERSATION
-            # ==================================================
+            # ==============================================
+            # ADD FUNCTION CALL
+            # ==============================================
 
             function_call_content = {
                 "functionCall": fc
@@ -493,9 +533,9 @@ this previous build.
             })
 
 
-            # ==================================================
+            # ==============================================
             # ADD FUNCTION RESPONSE
-            # ==================================================
+            # ==============================================
 
             messages.append({
                 "role": "function_response",
@@ -511,18 +551,17 @@ this previous build.
             function_call_found = True
 
 
-        # ==================================================
-        # NO TOOL CALLS → WE HAVE FINAL ANSWER
-        # ==================================================
+        # ==============================================
+        # NO TOOL CALL → FINAL ANSWER
+        # ==============================================
 
         if not function_call_found:
-
             break
 
 
-        # ==================================================
-        # CALL GEMINI AGAIN WITH TOOL RESULTS
-        # ==================================================
+        # ==============================================
+        # CALL GEMINI WITH TOOL RESULTS
+        # ==============================================
 
         result = call_gemini(
             messages,
@@ -561,11 +600,8 @@ this previous build.
 
 
     # ==================================================
-    # FINAL FALLBACK
+    # FORCE FINAL ANSWER IF NEEDED
     # ==================================================
-
-    # If Gemini still returned function calls or no text
-    # after the allowed tool rounds, force a final answer.
 
     if not answer:
 
@@ -622,9 +658,6 @@ this previous build.
     # ==================================================
     # UPDATE CONVERSATION HISTORY
     # ==================================================
-
-    # Store ONLY the original user question.
-    # Do NOT store the injected previous-build context.
 
     history.append({
         "role": "user",
